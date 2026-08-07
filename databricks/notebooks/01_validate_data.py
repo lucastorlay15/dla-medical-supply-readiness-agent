@@ -1,10 +1,15 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC # Validate DLA Medical Supply Demo Data
 # MAGIC
 # MAGIC Run this after `00_generate_all` to inspect model prevalence, current supply health, supplier behavior, and basic referential integrity.
 
 # COMMAND ----------
+
 from datetime import date
 from pathlib import Path
 import sys
@@ -20,6 +25,7 @@ from dla_supply_demo.common import fq_table
 from dla_supply_demo.config import GenerationConfig
 
 # COMMAND ----------
+
 dbutils.widgets.text("catalog_name", "", "Catalog (blank = current/default)")
 dbutils.widgets.text("schema_name", "dla_medical_supply_demo", "Schema")
 
@@ -35,10 +41,12 @@ cfg = GenerationConfig(
 )
 
 # COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Table inventory and physical size
 
 # COMMAND ----------
+
 table_names = [
     "dim_customer_location",
     "dim_medical_item",
@@ -73,10 +81,12 @@ display(
 )
 
 # COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Model target prevalence
 
 # COMMAND ----------
+
 training = spark.table(fq_table(cfg, "ml_shortage_training"))
 target_summary = (
     training.groupBy("shortage_within_30d")
@@ -87,10 +97,12 @@ target_summary = (
 display(target_summary)
 
 # COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Current supply health
 
 # COMMAND ----------
+
 current = spark.table(fq_table(cfg, "agent_current_supply_position"))
 display(
     current.groupBy("inventory_status")
@@ -102,10 +114,12 @@ display(
 )
 
 # COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## High-value current concerns for the eventual agent demo
 
 # COMMAND ----------
+
 display(
     current
     .filter(F.col("criticality").isin("MISSION_CRITICAL", "HIGH"))
@@ -129,10 +143,12 @@ display(
 )
 
 # COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Referential integrity checks
 
 # COMMAND ----------
+
 inventory = spark.table(fq_table(cfg, "fact_inventory_daily"))
 customers = spark.table(fq_table(cfg, "dim_customer_location"))
 items = spark.table(fq_table(cfg, "dim_medical_item"))
