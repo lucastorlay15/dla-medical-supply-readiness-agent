@@ -5,8 +5,12 @@
 # MAGIC Run this after `00_generate_all` to inspect model prevalence, current supply health, supplier behavior, and basic referential integrity.
 
 # COMMAND ----------
+from datetime import date
 from pathlib import Path
 import sys
+
+from pyspark.sql import functions as F
+from pyspark.sql.window import Window
 
 src_path = str((Path.cwd().parent / "src").resolve())
 if src_path not in sys.path:
@@ -23,7 +27,6 @@ catalog_name = dbutils.widgets.get("catalog_name").strip() or spark.catalog.curr
 schema_name = dbutils.widgets.get("schema_name").strip()
 
 # as_of_date/scale are not needed to read already-generated tables.
-from datetime import date
 cfg = GenerationConfig(
     catalog_name=catalog_name,
     schema_name=schema_name,
@@ -74,8 +77,6 @@ display(
 # MAGIC ## Model target prevalence
 
 # COMMAND ----------
-from pyspark.sql import functions as F
-
 training = spark.table(fq_table(cfg, "ml_shortage_training"))
 target_summary = (
     training.groupBy("shortage_within_30d")
@@ -90,8 +91,6 @@ display(target_summary)
 # MAGIC ## Current supply health
 
 # COMMAND ----------
-from pyspark.sql.window import Window
-
 current = spark.table(fq_table(cfg, "agent_current_supply_position"))
 display(
     current.groupBy("inventory_status")
