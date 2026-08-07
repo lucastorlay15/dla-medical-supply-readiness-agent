@@ -30,7 +30,7 @@ The underlying information naturally spans two different information types:
 1. **Structured operational data** — inventory, orders, shipments, suppliers, customers, consumption, and historical performance.
 2. **Unstructured governing context** — medical supply policies, stocking requirements, contracts, contingency guidance, and sourcing procedures.
 
-The current-state problem is not simply "find a record." The difficult task is combining these sources quickly enough to identify risk before mission impact and explain why the risk exists.
+The difficult task is combining these sources quickly enough to identify risk before mission impact and explain why the risk exists.
 
 ### Million-dollar question
 
@@ -44,7 +44,7 @@ This question anchors the entire data model, predictive model, tools, agent, and
 
 The demo should communicate that this is a Fortune-500-scale logistics problem without pretending the synthetic dataset reproduces the entire DLA enterprise.
 
-Public metrics currently represented in `reference_enterprise_metrics` include:
+Public metrics represented in `reference_enterprise_metrics` include:
 
 | Scope | Metric | Public value |
 |---|---|---:|
@@ -58,17 +58,11 @@ Public metrics currently represented in `reference_enterprise_metrics` include:
 
 Important: the customer, supplier, order, and item figures above are **Troop Support-wide where noted**, not necessarily Medical-only.
 
-The authoritative URLs and notes are stored in:
+The authoritative URLs and notes are stored in `databricks/src/dla_supply_demo/reference_metrics.py` and materialized into `reference_enterprise_metrics`.
 
-`databricks/src/dla_supply_demo/reference_metrics.py`
+Presentation framing:
 
-and materialized into:
-
-`reference_enterprise_metrics`
-
-This separation lets the presentation say:
-
-> "DLA operates at enormous real-world scale. This MVP uses a smaller synthetic dataset with the same relationships and analytical patterns so the architecture is reproducible and affordable to demo."
+> DLA operates at enormous real-world scale. This MVP uses a smaller synthetic dataset with the same relationships and analytical patterns so the architecture is reproducible and affordable to demo.
 
 ---
 
@@ -92,8 +86,6 @@ The experience should feel like an analytical teammate that can use governed too
 
 ## 5. Core architecture
 
-Conceptually:
-
 ```text
 User
   |
@@ -111,7 +103,7 @@ Databricks Delta     DataRobot vector      DataRobot predictive
 Tables               knowledge base        model
 ```
 
-A key architectural principle is:
+Key architectural principle:
 
 > **The agent reasons. Tools analyze. The predictive model predicts.**
 
@@ -129,28 +121,19 @@ Five tools are part of the full solution vision. **Only Tools 1–3 are committe
 
 Purpose:
 
-- answer analytical questions over the Databricks Delta tables,
+- answer analytical questions over Databricks Delta tables,
 - aggregate large historical datasets in place,
 - investigate current and historical supply conditions,
 - explain observed risk using operational evidence.
 
-Likely capabilities:
-
-- inspect an approved schema/table inventory,
-- execute read-only SQL,
-- query only approved tables/views,
-- enforce statement and row limits,
-- log generated SQL and execution metadata,
-- return concise tables/aggregates to the agent.
-
-Security posture for the demo architecture:
+Security posture:
 
 - `SELECT` only,
-- no `INSERT`, `UPDATE`, `DELETE`, `DROP`, or DDL,
 - approved catalog/schema only,
-- bounded query runtime/result size,
+- no destructive SQL or DDL,
+- bounded runtime and result size,
 - least privilege,
-- production design should propagate user identity/authorization rather than using an unrestricted shared identity.
+- production design should propagate user identity/authorization.
 
 ### Tool 2 — Policy and Contract Search / RAG
 
@@ -158,13 +141,11 @@ Security posture for the demo architecture:
 
 Purpose:
 
-- retrieve the policy or contractual context that structured data cannot provide,
+- retrieve policy or contractual context structured data cannot provide,
 - support stocking requirements, readiness thresholds, sourcing rules, and escalation procedures,
 - cite the source used in the response.
 
-The operational data model already contains `policy_reference_id` fields to support an understandable connection between an item and relevant policy context.
-
-The RAG corpus will use synthetic/demo-safe documents plus appropriate public source material where useful.
+The operational data model contains `policy_reference_id` fields to support a clean connection between operational items and relevant policy context.
 
 ### Tool 3 — Shortage Risk Prediction
 
@@ -173,7 +154,7 @@ The RAG corpus will use synthetic/demo-safe documents plus appropriate public so
 Purpose:
 
 - invoke or retrieve predictions from a DataRobot predictive model,
-- estimate whether an item/location pair that is currently above minimum stock is likely to fall below the required threshold within the next 30 days,
+- estimate whether an item/location pair currently above minimum stock is likely to fall below the required threshold within the next 30 days,
 - expose probability/risk and important predictive factors without asking the LLM to forecast directly.
 
 Target:
@@ -186,7 +167,7 @@ Conceptually:
 P(fall below minimum stock threshold in next 30 days | information available today)
 ```
 
-The model should be trained from point-in-time historical features and evaluated as an imbalanced binary classification problem.
+The model is trained from point-in-time historical features and evaluated as an imbalanced binary classification problem.
 
 ### Tool 4 — Scenario Simulation
 
@@ -194,7 +175,7 @@ The model should be trained from point-in-time historical features and evaluated
 
 Example:
 
-> "What happens if we redirect 20% of available inventory from lower-risk East Coast locations to the Pacific?"
+> What happens if we redirect 20% of available inventory from lower-risk East Coast locations to the Pacific?
 
 This tool would deterministically alter approved scenario inputs and recalculate operational/model outcomes.
 
@@ -217,11 +198,9 @@ Consequential actions remain **human-approved**. The agent proposes; an authoriz
 
 ## 7. Databricks data-generation approach
 
-The synthetic data layer is generated **directly as managed Delta tables using PySpark**.
+The synthetic data layer is generated **directly as managed Delta tables using PySpark**. There is no CSV staging layer.
 
-There is no CSV staging layer.
-
-The design goals are:
+Design goals:
 
 1. Reproducible from code.
 2. Runnable from a single Databricks notebook.
@@ -241,19 +220,19 @@ If the `catalog_name` widget is blank, the notebook uses:
 spark.catalog.currentCatalog()
 ```
 
-The default schema is:
+Default schema:
 
 ```text
 dla_medical_supply_demo
 ```
 
-Therefore the normal destination is:
+Normal destination:
 
 ```text
 <current_catalog>.dla_medical_supply_demo.<table>
 ```
 
-A catalog can also be supplied explicitly through the notebook widget.
+For the interview, the synthetic world should remain frozen to a known as-of date/seed so predictions and demo answers remain reproducible.
 
 ---
 
@@ -279,37 +258,16 @@ databricks/
 
 ### File responsibilities
 
-#### `00_generate_all.py`
+- `00_generate_all.py` — user-facing orchestration notebook for generation and basic sanity checks.
+- `01_validate_data.py` — validates tables, row counts, class distribution, inventory status, and key relationships.
+- `config.py` — generation configuration and scale profiles.
+- `dimensions.py` — customer, item, supplier, and customer-item relationship dimensions.
+- `facts.py` — inventory, orders, shipments, and supplier disruption operational history.
+- `features.py` — supplier analytics, agent-ready current state, ML training set, and ML scoring set.
+- `reference_metrics.py` — official public DLA context with source provenance, separate from synthetic facts.
+- `pipeline.py` — central generation orchestration.
 
-User-facing orchestration notebook.
-
-Responsibilities:
-
-- accept scale/catalog/schema/as-of/reset parameters,
-- resolve the current/default catalog,
-- display expected synthetic scale,
-- invoke the modular generator,
-- show registered tables,
-- perform basic model-target and operational sanity checks.
-
-#### `01_validate_data.py`
-
-Validation notebook.
-
-Responsibilities:
-
-- verify tables exist,
-- verify useful row counts,
-- check shortage class distribution,
-- inspect current inventory status distribution,
-- confirm key joins and fields are populated,
-- surface obvious synthetic-data pathologies before moving into DataRobot.
-
-#### `config.py`
-
-Central generation configuration and scale profiles.
-
-Current profiles:
+### Scale profiles
 
 | Profile | Customers | Items | Suppliers | Active items/customer | History | Orders |
 |---|---:|---:|---:|---:|---:|---:|
@@ -317,64 +275,12 @@ Current profiles:
 | demo | 120 | 500 | 120 | 100 | 540 days | 500,000 |
 | large | 300 | 1,000 | 300 | 200 | 730 days | 3,000,000 |
 
-The `demo` profile currently implies approximately:
+The `demo` profile implies approximately:
 
 - 12,000 active customer-item relationships,
 - 6.48M customer-item-day inventory rows,
 - 500K orders,
 - plus shipments, dimensions, events, features, and derived tables.
-
-The `tiny` profile should always be used first for integration/smoke testing.
-
-#### `dimensions.py`
-
-Generates:
-
-- `dim_customer_location`
-- `dim_medical_item`
-- `dim_supplier`
-- `bridge_customer_item`
-
-It also creates internal latent synthetic relationships used only to generate realistic outcomes. Hidden latent variables must not be persisted into model training or agent-facing tables.
-
-#### `facts.py`
-
-Generates the operational history:
-
-- `fact_inventory_daily`
-- `fact_orders`
-- `fact_shipments`
-- `fact_supplier_events`
-
-The tables are correlated rather than independent random data. Supplier performance, lead time, demand, geography, and latent supply stress influence observable inventory/order/shipment behavior.
-
-#### `features.py`
-
-Generates analytical/model-ready products:
-
-- `analytics_supplier_performance`
-- `agent_current_supply_position`
-- `ml_shortage_training`
-- `ml_shortage_scoring`
-
-This layer is deliberately split between:
-
-- **operational evidence for the SQL/agent**, and
-- **features/labels for the DataRobot predictive model**.
-
-#### `reference_metrics.py`
-
-Generates:
-
-- `reference_enterprise_metrics`
-
-This table contains official public DLA scale context and source URLs. It stays separate from all synthetic facts.
-
-#### `pipeline.py`
-
-Central orchestration logic.
-
-It owns the generated-table list and invokes the dimensions, facts, analytics/ML, and reference-metric builders.
 
 ---
 
@@ -382,64 +288,10 @@ It owns the generated-table list and invokes the dimensions, facts, analytics/ML
 
 ### Dimensions
 
-#### `dim_customer_location`
-
-Grain: one synthetic receiving/customer location.
-
-Key concepts:
-
-- region,
-- service,
-- facility/customer type,
-- mission priority,
-- supported population,
-- remote-location indicator.
-
-Supports the **"where?"** part of the million-dollar question.
-
-#### `dim_medical_item`
-
-Grain: one synthetic medical item.
-
-Key concepts:
-
-- commodity group,
-- FSC-style category,
-- criticality,
-- unit cost,
-- minimum stocking policy,
-- shelf life,
-- cold-chain requirement,
-- policy reference.
-
-Supports the **"which critical supply?"** and policy/RAG stories.
-
-#### `dim_supplier`
-
-Grain: one synthetic supplier.
-
-Key concepts:
-
-- supplier type,
-- geography,
-- contract lead time,
-- baseline on-time performance,
-- quality rate.
-
-Supports supplier-risk explanations.
-
-#### `bridge_customer_item`
-
-Grain: active customer-item relationship.
-
-Key concepts:
-
-- preferred supplier,
-- baseline demand,
-- minimum days supply,
-- target days supply.
-
-This intentionally keeps the supply network sparse rather than cross-joining every item to every customer.
+- `dim_customer_location` — one synthetic receiving/customer location; region, service, mission priority, supported population, remote-location indicator.
+- `dim_medical_item` — one synthetic medical item; commodity group, FSC-style category, criticality, unit cost, stocking requirement, shelf life, cold-chain flag, policy reference.
+- `dim_supplier` — one synthetic supplier; type, geography, lead time, baseline on-time performance, quality rate.
+- `bridge_customer_item` — active customer-item relationship; preferred supplier, baseline demand, minimum and target days supply.
 
 ### Operational facts
 
@@ -449,87 +301,33 @@ Grain:
 
 > customer × medical item × day
 
-Key measures:
-
-- daily demand,
-- on-hand units,
-- on-order units,
-- backordered units,
-- units expiring within 90 days,
-- days of supply,
-- minimum/target days supply,
-- inventory status,
-- inventory value.
+Measures include daily demand, on-hand units, on-order units, backorders, expiration exposure, days of supply, minimum/target days supply, inventory status, and inventory value.
 
 This is the main large-data table for demonstrating aggregation at scale.
 
 #### `fact_orders`
 
-Key concepts:
-
-- requisition/order date,
-- customer,
-- item,
-- supplier,
-- priority,
-- ordered/delivered quantity,
-- order status,
-- promised delivery date,
-- order value.
+Requisitions/orders with customer, item, supplier, priority, quantities, status, promised delivery date, and value.
 
 #### `fact_shipments`
 
-Key concepts:
-
-- shipment status,
-- ship/promised/actual delivery dates,
-- days late,
-- on-time flag,
-- shipped units.
-
-This provides evidence about whether supply risk is being driven by supplier/inbound performance.
+Shipment performance with promised/actual delivery, days late, on-time flag, and shipped units.
 
 #### `fact_supplier_events`
 
-Interpretable disruptions such as:
-
-- manufacturing constraint,
-- transportation delay,
-- quality hold,
-- cold-chain exception,
-- raw-material shortage,
-- capacity reduction.
+Interpretable disruptions such as manufacturing constraints, transportation delays, quality holds, cold-chain exceptions, raw-material shortages, and capacity reductions.
 
 ### Agent/analytics products
 
 #### `analytics_supplier_performance`
 
-Aggregated supplier performance used to explain operational risk and support efficient queries.
+Aggregated supplier delivery performance for efficient root-cause analysis.
 
 #### `agent_current_supply_position`
 
-Current agent-ready operational view/table.
-
-It should combine the fields most commonly needed in a live investigation:
-
-- location and region,
-- medical item and criticality,
-- current inventory,
-- current/required days of supply,
-- demand trends,
-- backorders,
-- inbound/late supply,
-- supplier information,
-- supplier on-time performance,
-- estimated stockout context,
-- policy reference.
+Current agent-ready operational table combining the fields most useful in a live investigation: location, item, criticality, inventory, days of supply, demand context, backorders, late inbound supply, supplier performance, estimated stockout context, and policy reference.
 
 **It must not contain the DataRobot shortage prediction.**
-
-That separation lets the demo clearly distinguish:
-
-- current operational analysis, from
-- predictive modeling.
 
 ### ML products
 
@@ -539,15 +337,13 @@ Historical point-in-time feature rows with target:
 
 `shortage_within_30d`
 
-A positive label means the customer-item pair was above its minimum threshold at the snapshot date and then fell below that minimum within the following 30 days.
+A positive label means the customer-item pair was above minimum at the snapshot date and fell below that minimum within the following 30 days.
 
-Rows already below minimum at prediction time should not be treated as future-shortage prediction cases.
+Rows already below minimum at prediction time are excluded from future-shortage training cases.
 
 #### `ml_shortage_scoring`
 
-Current feature state for batch scoring by the DataRobot model.
-
-No future label is present.
+Current feature state for batch scoring by the DataRobot model. There is one current row per active customer-item relationship and no future label.
 
 ---
 
@@ -555,12 +351,10 @@ No future label is present.
 
 The shortage target must be **learnable and explainable**, not a random label.
 
-Synthetic dynamics should cause shortage through observable operational conditions such as:
+Synthetic dynamics create shortages through observable conditions such as:
 
-- low days of supply,
-- decreasing inventory coverage,
-- increasing demand,
-- high demand volatility,
+- low/decreasing days of supply,
+- increasing or volatile demand,
 - backorders,
 - long supplier lead time,
 - weak supplier on-time performance,
@@ -569,7 +363,7 @@ Synthetic dynamics should cause shortage through observable operational conditio
 - disruption events,
 - mission/customer stocking requirements.
 
-The generator may use hidden latent variables internally to create correlated behavior, but those hidden variables **must never appear in persisted model features**.
+Hidden latent variables may be used internally to create correlated behavior, but they **must never appear in persisted model features**.
 
 ### Point-in-time / leakage requirement
 
@@ -577,20 +371,7 @@ Features at date `T` may only use information available on or before `T`.
 
 The target may look forward from `T` through `T + 30 days`.
 
-This keeps the ML demonstration technically credible and gives a clean interview explanation of leakage prevention.
-
-### Desired class behavior
-
-The target should remain a minority event rather than making nearly every row risky.
-
-Desired qualitative behavior:
-
-- most current positions are healthy,
-- a useful watch population exists,
-- a smaller set is already below minimum,
-- the historical training table has enough positive 30-day shortage cases for DataRobot to learn meaningful patterns.
-
-Exact prevalence should be validated empirically after running the generator and adjusted if necessary.
+The target should remain a minority event with enough positive cases for DataRobot to learn meaningful patterns.
 
 ---
 
@@ -598,9 +379,11 @@ Exact prevalence should be validated empirically after running the generator and
 
 ### Phase 1 — Synthetic Databricks data foundation
 
-**Current active phase**
+**Status: ✅ COMPLETE — August 7, 2026**
 
-Tasks:
+Phase completion confirmed after successfully generating the synthetic Delta-table data in the connected Databricks workspace.
+
+Completed scope:
 
 - [x] Create repository structure.
 - [x] Create modular PySpark generators.
@@ -613,14 +396,13 @@ Tasks:
 - [x] Create current scoring dataset.
 - [x] Create agent-ready current operational position.
 - [x] Add validation notebook.
-- [ ] Run `tiny` in the actual connected Databricks workspace.
-- [ ] Resolve any runtime/catalog/import issues found by the first run.
-- [ ] Validate distributions and relationships.
-- [ ] Tune synthetic shortage prevalence if needed.
-- [ ] Run `demo` profile.
-- [ ] Capture final row counts and basic screenshots/statistics for presentation material.
+- [x] Successfully execute the generator in the connected Databricks workspace.
+
+Any additional synthetic-data tuning, screenshots, or presentation statistics are now considered **demo-hardening work**, not blockers to Phase 1 completion.
 
 ### Phase 2 — DataRobot shortage-risk model
+
+**Current active phase**
 
 Tasks:
 
@@ -644,7 +426,7 @@ Acceptance criteria:
 
 Tasks:
 
-- [ ] Decide the final DataRobot implementation pattern (custom agent tool vs MCP-wrapped SQL service/tool).
+- [ ] Decide final DataRobot implementation pattern (custom agent tool vs MCP-wrapped SQL service/tool).
 - [ ] Connect to the approved Databricks catalog/schema.
 - [ ] Define explicit approved tables/views.
 - [ ] Implement read-only query controls.
@@ -655,10 +437,10 @@ Tasks:
 
 Acceptance criteria:
 
-- can answer cross-table questions reliably,
-- can aggregate millions of source rows without moving them into the LLM context,
-- can explain current risk using evidence independent of DataRobot predictions,
-- cannot perform writes or destructive SQL.
+- answer cross-table questions reliably,
+- aggregate millions of source rows without moving them into the LLM context,
+- explain current risk using evidence independent of DataRobot predictions,
+- prevent writes/destructive SQL.
 
 ### Phase 4 — Tool 2: policy / contract RAG
 
@@ -702,6 +484,7 @@ Tasks:
 
 - [ ] Freeze a known-good synthetic generation date/seed.
 - [ ] Select 2–4 compelling item/location examples.
+- [ ] Capture final row counts and presentation statistics/screenshots.
 - [ ] Pre-test all live demo prompts.
 - [ ] Add graceful failure/fallback behavior.
 - [ ] Add basic eval cases for SQL routing, RAG retrieval, and model-tool use.
@@ -714,33 +497,28 @@ Tasks:
 
 ## 12. Intended live-demo sequence
 
-A strong initial prompt is:
+Opening prompt:
 
-> **"I'm preparing for tomorrow's medical supply readiness review. Which critical medical supplies concern you most over the next 30 days, where, why, and what should I do about them?"**
+> **I'm preparing for tomorrow's medical supply readiness review. Which critical medical supplies concern you most over the next 30 days, where, why, and what should I do about them?**
 
-Expected agent behavior:
+Expected behavior:
 
 1. Use structured-data analysis to identify relevant current positions and historical context.
 2. Use the DataRobot shortage model to rank/quantify 30-day shortage risk.
-3. Investigate the drivers for the highest-risk examples using operational data.
-4. Retrieve relevant stocking/readiness policy for the selected item(s).
+3. Investigate drivers for the highest-risk examples using operational data.
+4. Retrieve relevant stocking/readiness policy for selected item(s).
 5. Synthesize an executive recommendation while keeping facts, predictions, and policy grounded in their respective tools.
 
-Possible follow-up prompts:
+Possible follow-ups:
 
-> "Why is the top item at risk? Is this demand-driven or supplier-driven?"
-
-> "How has that supplier performed over the last 90 days?"
-
-> "What stocking requirement applies here?"
-
-> "Show me the same risk by region rather than facility."
+- Why is the top item at risk? Is this demand-driven or supplier-driven?
+- How has that supplier performed over the last 90 days?
+- What stocking requirement applies here?
+- Show me the same risk by region rather than facility.
 
 Future-production follow-up, discussed but not executed:
 
-> "What if we transfer excess inventory from lower-risk locations?"
-
-This demonstrates the future Scenario Simulation tool.
+> What if we transfer excess inventory from lower-risk locations?
 
 ---
 
@@ -749,8 +527,6 @@ This demonstrates the future Scenario Simulation tool.
 ### Big-data message
 
 > **LLMs do not analyze terabytes of raw operational data. Tools do.**
-
-The intended pattern is:
 
 ```text
 Natural-language question
@@ -793,9 +569,7 @@ The architecture should naturally support discussion of:
 
 ### MVP message
 
-The take-home assignment calls for a visionary but functioning prototype, not a production deployment.
-
-The MVP therefore builds the three capabilities that make the demo credible:
+The MVP builds the three capabilities that make the demo credible:
 
 1. governed structured-data analysis,
 2. grounded policy retrieval,
@@ -828,18 +602,16 @@ If given two additional weeks, priorities would include:
 
 ## 15. Immediate next step
 
-The next action is **not** to start the DataRobot agent yet.
+**Phase 1 is complete. The project now moves to Phase 2: DataRobot shortage-risk modeling.**
 
-First:
+Next actions:
 
-1. Check out `feature/databricks-synthetic-data` in Databricks.
-2. Run `databricks/notebooks/00_generate_all.py` with `scale=tiny`.
-3. Run `01_validate_data.py`.
-4. Fix any Databricks runtime/catalog/import issues.
-5. Review the resulting data distributions and shortage prevalence.
-6. Once the data looks credible, run the `demo` profile.
-
-Only after the data foundation is validated should the project move to DataRobot model training and the three MVP tools.
+1. Connect/import `ml_shortage_training` into DataRobot.
+2. Verify feature types and use `shortage_within_30d` as the binary target.
+3. Train and evaluate classification candidates.
+4. Inspect class balance, PR AUC, precision/recall, calibration, and feature effects.
+5. Select a credible model and score `ml_shortage_scoring`.
+6. Preserve several strong high-risk examples for later agent/demo testing.
 
 ---
 
