@@ -1,4 +1,5 @@
 from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 
 from .common import drop_tables, ensure_schema
 from .config import GenerationConfig
@@ -37,6 +38,17 @@ def generate_all(
         drop_tables(spark, cfg, GENERATED_TABLES)
 
     dimensions = build_dimensions(spark, cfg)
+
+    # Calibrate the generator's hidden stress variable so shortages remain a
+    # minority event instead of overwhelming the demo. This latent field is
+    # never persisted as a model/agent feature, preventing synthetic leakage.
+    dimensions["relationships_internal"] = dimensions[
+        "relationships_internal"
+    ].withColumn(
+        "_latent_supply_stress",
+        F.col("_latent_supply_stress") * F.lit(0.33),
+    )
+
     build_operational_facts(spark, cfg, dimensions)
     build_analytics_and_ml(spark, cfg)
     build_reference_metrics(spark, cfg)
