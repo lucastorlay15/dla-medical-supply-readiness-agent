@@ -124,9 +124,9 @@ Five tools are part of the full solution vision. **Only Tools 1–3 are committe
 
 ### Tool 1 — Operational Data Analyst
 
-**Status: MVP — build next**
+**Status: ✅ COMPLETE FOR MVP — August 11, 2026**
 
-**Implementation: one Databricks Genie Space exposed to the DataRobot agent through the managed Genie MCP endpoint.**
+**Implementation: one Databricks Genie Space exposed to the deployed DataRobot agent through the managed Genie MCP endpoint.**
 
 Working name:
 
@@ -164,7 +164,17 @@ This keeps the conceptual boundary clear:
 
 > **Genie answers: what is happening and why?**
 
-The DataRobot agent should connect directly to the managed Genie MCP endpoint for the space. Do **not** build a custom SQL-generation layer or MCP wrapper unless direct authentication/integration proves impossible.
+The DataRobot agent connects directly to the managed Genie MCP endpoint for the space. No custom NL-to-SQL layer or MCP wrapper is used.
+
+The deployed Agentic Starter uses the external MCP configuration:
+
+```text
+EXTERNAL_MCP_URL=<Databricks managed Genie MCP endpoint>
+EXTERNAL_MCP_HEADERS={"Authorization":"Bearer <Databricks PAT>"}
+EXTERNAL_MCP_TRANSPORT=streamable-http
+```
+
+The generated bundled `mcp_server` deployment path is disabled because this solution consumes Databricks' managed MCP server rather than deploying a separate DataRobot-hosted MCP server.
 
 MVP controls:
 
@@ -177,7 +187,7 @@ Production design would additionally propagate user identity/authorization and f
 
 ### Tool 2 — Policy and Contract Search / RAG
 
-**Status: MVP — build after Tool 1**
+**Status: CURRENT ACTIVE MVP PHASE**
 
 **Implementation: DataRobot-native RAG using a small curated policy corpus and DataRobot vector/knowledge-base capabilities.**
 
@@ -323,6 +333,8 @@ For the interview, the synthetic world should remain frozen to a known as-of dat
 ## 8. Current repository layout
 
 ```text
+PROJECT_PLAN.md
+README.md
 databricks/
 ├── README.md
 ├── notebooks/
@@ -338,6 +350,12 @@ databricks/
         ├── features.py
         ├── pipeline.py
         └── reference_metrics.py
+
+datarobot-agent-application/
+├── agent/
+│   └── workflow.yaml
+├── infra/
+└── ... generated Agentic Starter application files
 ```
 
 ### File responsibilities
@@ -350,6 +368,17 @@ databricks/
 - `features.py` — supplier analytics, agent-ready current state, ML training set, and ML scoring set.
 - `reference_metrics.py` — official public DLA context with source provenance, separate from synthetic facts.
 - `pipeline.py` — central generation orchestration.
+- `datarobot-agent-application/` — DataRobot Agentic Starter project containing the agent workflow, deployment infrastructure, and application assets used for Playground/custom-application deployment.
+
+### Development/deployment note
+
+The DataRobot trial Codespace currently cannot establish outbound HTTPS connectivity to the Azure Databricks `*.azuredatabricks.net` endpoint, even though general outbound access and the separate DataRobot Databricks data connection work. The deployed DataRobot agent runtime **can** reach the managed Genie MCP endpoint successfully.
+
+Therefore:
+
+- local Codespace development remains useful for editing and non-Genie testing,
+- Genie integration is validated in the deployed Agentic Playground,
+- the final demo should use the deployed runtime rather than relying on local `dr run dev` for Tool 1.
 
 ### Scale profiles
 
@@ -517,23 +546,27 @@ Additional detailed model explainability, screenshots, and polished serving view
 
 ### Phase 3 — Tool 1: Databricks Genie operational analyst
 
-**Status: CURRENT ACTIVE PHASE**
+**Status: ✅ COMPLETE FOR MVP — August 11, 2026**
 
 Implementation decision:
 
-> Use one Databricks Genie Space over the approved operational tables and expose it directly to the DataRobot Readiness Agent through the managed Genie MCP endpoint. Do not build custom NL-to-SQL infrastructure unless this direct path fails.
+> Use one Databricks Genie Space over the approved operational tables and expose it directly to the DataRobot Readiness Agent through the managed Genie MCP endpoint. Do not build custom NL-to-SQL infrastructure.
 
-Tasks:
+Completed scope:
 
-- [ ] Create the `DLA Medical Supply Operations Analyst` Genie Space.
-- [ ] Add the approved operational tables/views listed in the Tool 1 section.
-- [ ] Keep DataRobot training/scoring/prediction tables out of Genie.
-- [ ] Configure basic table descriptions, joins, and a small set of high-value example questions.
-- [ ] Test operational questions directly inside Genie.
-- [ ] Confirm generated queries execute through the selected Databricks SQL warehouse.
-- [ ] Obtain the Genie Space ID / managed MCP endpoint.
-- [ ] Connect the Genie MCP endpoint to the DataRobot agent environment.
-- [ ] Test that DataRobot can invoke Genie and receive compact grounded answers.
+- [x] Create the `DLA Medical Supply Operations Analyst` Genie Space.
+- [x] Add the approved operational tables/views listed in the Tool 1 section.
+- [x] Keep DataRobot training/scoring/prediction tables out of Genie.
+- [x] Configure the operational Genie space sufficiently for MVP analytical questions.
+- [x] Test operational questions directly against the Genie-backed data.
+- [x] Confirm generated analytical queries execute against the Databricks environment.
+- [x] Obtain the Genie Space ID / managed MCP endpoint.
+- [x] Configure the external managed MCP endpoint in the DataRobot Agentic Starter.
+- [x] Deploy the DataRobot agent and Agentic Playground.
+- [x] Validate an end-to-end DataRobot agent → MCP → Databricks Genie → operational-data response.
+- [x] Confirm multi-table operational analysis works from the deployed agent runtime.
+
+Validated behavior included counting the 120 represented customer locations across operational data and successfully answering a more complex current supply-position question through Genie.
 
 Acceptance criteria:
 
@@ -543,7 +576,11 @@ Acceptance criteria:
 - keep the capability read-only for the MVP,
 - DataRobot can invoke the operational analyst as one distinct tool.
 
+All MVP acceptance criteria are met. Further Genie prompt tuning and demo-question hardening move to Phase 6.
+
 ### Phase 4 — Tool 2: DataRobot policy / contract RAG
+
+**Status: CURRENT ACTIVE PHASE**
 
 Tasks:
 
@@ -563,12 +600,19 @@ Acceptance criteria:
 
 ### Phase 5 — Tool 3 + DataRobot agent orchestration
 
-Tasks:
+Agent foundation already completed during Phase 3:
+
+- [x] Generate the DataRobot Agentic Starter application.
+- [x] Configure the NeMo/NAT workflow foundation.
+- [x] Deploy the primary DataRobot Readiness Agent custom model.
+- [x] Create/connect the Agentic Playground.
+- [x] Validate the agent can invoke an external MCP tool from the deployed runtime.
+
+Remaining tasks:
 
 - [ ] Implement deterministic `get_shortage_risk(customer_id, item_id)` lookup against `ml_shortage_predictions_raw`.
 - [ ] Return the relevant current probability and snapshot identifiers in a compact structured response.
 - [ ] Keep the prediction lookup separate from Genie.
-- [ ] Build the primary DataRobot Readiness Agent.
 - [ ] Register/connect all three tools with clear descriptions.
 - [ ] Give the agent explicit tool-selection instructions:
   - Tool 1 / Genie for operational facts and root-cause analysis,
@@ -717,16 +761,16 @@ If given two additional weeks, priorities would include:
 
 ## 15. Immediate next step
 
-**Phases 1 and 2 are complete for the MVP. The project now moves to Phase 3: Tool 1 — Databricks Genie operational analysis.**
+**Phases 1–3 are complete for the MVP. The project now moves to Phase 4: Tool 2 — DataRobot policy / contract RAG.**
 
 Next actions:
 
-1. Create one Genie Space named `DLA Medical Supply Operations Analyst`.
-2. Add the operational tables listed under Tool 1 and keep all ML/prediction tables out.
-3. Add the important join relationships and a small number of tested example questions.
-4. Validate the exact operational questions intended for the demo inside Genie.
-5. Connect the managed Genie MCP endpoint to the DataRobot agent environment.
-6. Once Tool 1 works end-to-end, move directly to Phase 4 DataRobot RAG.
+1. Create a small, polished policy corpus tied to the demo's stocking/readiness and sourcing/escalation questions.
+2. Ingest the corpus into DataRobot's native vector/RAG capability.
+3. Preserve source metadata/citations in retrieval results.
+4. Test retrieval using both `policy_reference_id` and natural-language questions.
+5. Expose policy retrieval to the deployed Readiness Agent as a distinct capability.
+6. Once Tool 2 works end-to-end, move directly to the Tool 3 deterministic prediction lookup and final three-tool orchestration.
 
 ---
 
