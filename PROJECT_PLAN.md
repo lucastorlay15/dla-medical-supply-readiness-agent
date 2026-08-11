@@ -92,72 +92,139 @@ User
   v
 DataRobot Readiness Agent / Orchestrator
   |
-  +----------------------+----------------------+----------------------+
-  |                      |                      |                      |
-  v                      v                      v                      v
-Operational Data     Policy / Contract     Shortage Risk        Future tools
-SQL Tool             RAG Tool              Model Tool           (not MVP)
-  |                      |                      |
-  v                      v                      v
-Databricks Delta     DataRobot vector      DataRobot predictive
-Tables               knowledge base        model
+  +------------------------------+-----------------------------+
+  |                              |                             |
+  v                              v                             v
+Tool 1                         Tool 2                        Tool 3
+Operational Analyst           Policy / Contract RAG         Shortage Risk Lookup
+Databricks Genie              DataRobot-native RAG          Deterministic lookup
+  |                              |                             |
+  | Managed Genie MCP            v                             v
+  v                         DataRobot vector /           DataRobot batch prediction
+Operational Delta tables      knowledge base             output in Databricks
+
+Future production tools: scenario simulation and human-approved action creation.
 ```
 
-Key architectural principle:
+Key architectural principles:
 
 > **The agent reasons. Tools analyze. The predictive model predicts.**
 
+> **Tool 1 explains what is happening. Tool 2 explains what rules apply. Tool 3 returns the authoritative model risk.**
+
 The LLM should not ingest or reason directly over millions/billions of raw operational rows. Structured tools execute aggregation where the data lives and return only the result needed for reasoning.
+
+The three MVP tools intentionally have separate responsibilities. In particular, the DataRobot shortage prediction tables are **not exposed to Genie**. This prevents the operational analyst from becoming an all-purpose tool and preserves a deterministic boundary around predictive inference.
 
 ---
 
 ## 6. Tool plan
 
-Five tools are part of the full solution vision. **Only Tools 1–3 are committed MVP build scope.**
+Five tools are part of the full solution vision. **Only Tools 1–3 are committed MVP build scope.** Their implementation patterns are now fixed for the MVP.
 
-### Tool 1 — Operational Data Analyst / SQL
+### Tool 1 — Operational Data Analyst
 
-**Status: MVP — build**
+**Status: MVP — build next**
+
+**Implementation: one Databricks Genie Space exposed to the DataRobot agent through the managed Genie MCP endpoint.**
+
+Working name:
+
+`DLA Medical Supply Operations Analyst`
 
 Purpose:
 
 - answer analytical questions over Databricks Delta tables,
 - aggregate large historical datasets in place,
 - investigate current and historical supply conditions,
-- explain observed risk using operational evidence.
+- explain observed risk using operational evidence,
+- return compact analytical results rather than raw datasets.
 
-Security posture:
+Genie scope for the MVP:
 
-- `SELECT` only,
-- approved catalog/schema only,
-- no destructive SQL or DDL,
-- bounded runtime and result size,
-- least privilege,
-- production design should propagate user identity/authorization.
+- `dim_customer_location`
+- `dim_medical_item`
+- `dim_supplier`
+- `bridge_customer_item`
+- `fact_inventory_daily`
+- `fact_orders`
+- `fact_shipments`
+- `fact_supplier_events`
+- `analytics_supplier_performance`
+- `agent_current_supply_position`
+- `reference_enterprise_metrics`
+
+Explicitly exclude from Genie:
+
+- `ml_shortage_training`
+- `ml_shortage_scoring`
+- `ml_shortage_predictions_raw`
+
+This keeps the conceptual boundary clear:
+
+> **Genie answers: what is happening and why?**
+
+The DataRobot agent should connect directly to the managed Genie MCP endpoint for the space. Do **not** build a custom SQL-generation layer or MCP wrapper unless direct authentication/integration proves impossible.
+
+MVP controls:
+
+- read-only analytical access,
+- approved catalog/schema and table set,
+- bounded result size,
+- compact responses back to the orchestrator.
+
+Production design would additionally propagate user identity/authorization and formalize least-privilege access.
 
 ### Tool 2 — Policy and Contract Search / RAG
 
-**Status: MVP — build**
+**Status: MVP — build after Tool 1**
+
+**Implementation: DataRobot-native RAG using a small curated policy corpus and DataRobot vector/knowledge-base capabilities.**
 
 Purpose:
 
 - retrieve policy or contractual context structured data cannot provide,
 - support stocking requirements, readiness thresholds, sourcing rules, and escalation procedures,
-- cite the source used in the response.
+- cite the source used in the response,
+- keep policy retrieval distinct from operational SQL analysis.
 
 The operational data model contains `policy_reference_id` fields to support a clean connection between operational items and relevant policy context.
 
-### Tool 3 — Shortage Risk Prediction
+The tool should return the relevant policy passage plus source metadata/citation rather than asking the LLM to answer policy questions from general model knowledge.
 
-**Status: MVP — build**
+Conceptual responsibility:
+
+> **Tool 2 answers: what policy, stocking rule, or escalation guidance applies?**
+
+### Tool 3 — Shortage Risk Prediction Lookup
+
+**Status: MVP — predictive pipeline built; agent lookup tool still to build**
+
+**Implementation: deterministic lookup against the DataRobot batch prediction output stored in Databricks. This tool does not use Genie and does not ask an LLM to generate SQL.**
+
+Predictive pipeline already established:
+
+```text
+Databricks ml_shortage_scoring
+        |
+        v
+DataRobot deployed shortage-risk model
+        |
+        v
+DataRobot batch prediction job
+        |
+        v
+Databricks ml_shortage_predictions_raw
+```
 
 Purpose:
 
-- invoke or retrieve predictions from a DataRobot predictive model,
-- estimate whether an item/location pair currently above minimum stock is likely to fall below the required threshold within the next 30 days,
-- expose probability/risk and important predictive factors without asking the LLM to forecast directly.
+- retrieve the authoritative DataRobot-generated probability for an item/location pair,
+- expose the current 30-day shortage risk to the agent,
+- keep model output separate from exploratory operational analysis,
+- prevent the LLM or Genie from inventing or reinterpreting a predictive probability.
 
-Target:
+Target modeled by DataRobot:
 
 `shortage_within_30d`
 
@@ -167,7 +234,24 @@ Conceptually:
 P(fall below minimum stock threshold in next 30 days | information available today)
 ```
 
-The model is trained from point-in-time historical features and evaluated as an imbalanced binary classification problem.
+Intended tool interface:
+
+```text
+get_shortage_risk(customer_id, item_id)
+```
+
+Minimum response fields:
+
+- `snapshot_date`
+- `customer_id`
+- `item_id`
+- `shortage_probability_30d`
+
+The lookup should be parameterized and deterministic. It should read only the prediction output needed for the request and return a compact structured result.
+
+Conceptual responsibility:
+
+> **Tool 3 answers: what probability did the DataRobot predictive model assign?**
 
 ### Tool 4 — Scenario Simulation
 
@@ -345,6 +429,10 @@ Rows already below minimum at prediction time are excluded from future-shortage 
 
 Current feature state for batch scoring by the DataRobot model. There is one current row per active customer-item relationship and no future label.
 
+#### `ml_shortage_predictions_raw`
+
+DataRobot batch prediction output written back to Databricks. This is the authoritative current prediction source for Tool 3 and is intentionally excluded from Tool 1 / Genie.
+
 ---
 
 ## 10. Synthetic shortage-generation philosophy
@@ -402,47 +490,60 @@ Any additional synthetic-data tuning, screenshots, or presentation statistics ar
 
 ### Phase 2 — DataRobot shortage-risk model
 
-**Current active phase**
+**Status: ✅ COMPLETE FOR MVP — August 11, 2026**
 
-Tasks:
+Completed scope:
 
-- [ ] Connect/import `ml_shortage_training` into DataRobot.
-- [ ] Confirm feature types and target.
-- [ ] Train binary classification candidates.
-- [ ] Choose evaluation metrics appropriate for class imbalance (PR AUC, precision/recall, calibration as appropriate).
-- [ ] Inspect feature impact / explainability.
-- [ ] Verify the model learns plausible operational drivers rather than synthetic artifacts.
-- [ ] Batch score `ml_shortage_scoring` for the MVP if real-time deployment is constrained by the trial.
-- [ ] Make predictions accessible to Tool 3.
+- [x] Connect/import `ml_shortage_training` into DataRobot.
+- [x] Confirm feature types and `shortage_within_30d` target.
+- [x] Train time-aware binary classification candidates.
+- [x] Evaluate with LogLoss as the primary probability-quality metric and PR AUC / ROC AUC as secondary discrimination metrics.
+- [x] Correct the artificial end-of-history synthetic distribution shift and retrain.
+- [x] Select and prepare a Light Gradient Boosted Trees classifier with early stopping as the MVP champion.
+- [x] Register/deploy the champion model.
+- [x] Build a Databricks → DataRobot → Databricks batch prediction job.
+- [x] Batch score `ml_shortage_scoring`.
+- [x] Write current predictions back to `ml_shortage_predictions_raw` in Databricks.
+- [x] Perform an MVP plausibility check of the resulting predictions.
 
 Acceptance criteria:
 
 - predictions vary meaningfully across item/location pairs,
-- high-risk examples have understandable drivers,
-- the demo can retrieve an individual/current shortage probability reliably,
+- the current shortage probability is available in Databricks for deterministic retrieval,
+- the model no longer depends on the artificial end-of-history regime shift,
 - no future/leaked fields are used.
 
-### Phase 3 — Tool 1: governed operational SQL
+Additional detailed model explainability, screenshots, and polished serving views can be completed during Phase 6 demo hardening if useful; they are not blockers to moving forward.
+
+### Phase 3 — Tool 1: Databricks Genie operational analyst
+
+**Status: CURRENT ACTIVE PHASE**
+
+Implementation decision:
+
+> Use one Databricks Genie Space over the approved operational tables and expose it directly to the DataRobot Readiness Agent through the managed Genie MCP endpoint. Do not build custom NL-to-SQL infrastructure unless this direct path fails.
 
 Tasks:
 
-- [ ] Decide final DataRobot implementation pattern (custom agent tool vs MCP-wrapped SQL service/tool).
-- [ ] Connect to the approved Databricks catalog/schema.
-- [ ] Define explicit approved tables/views.
-- [ ] Implement read-only query controls.
-- [ ] Enforce query/result limits.
-- [ ] Return compact structured results to the agent.
-- [ ] Log or expose generated SQL for demo transparency.
-- [ ] Test the exact analytical questions used in the presentation.
+- [ ] Create the `DLA Medical Supply Operations Analyst` Genie Space.
+- [ ] Add the approved operational tables/views listed in the Tool 1 section.
+- [ ] Keep DataRobot training/scoring/prediction tables out of Genie.
+- [ ] Configure basic table descriptions, joins, and a small set of high-value example questions.
+- [ ] Test operational questions directly inside Genie.
+- [ ] Confirm generated queries execute through the selected Databricks SQL warehouse.
+- [ ] Obtain the Genie Space ID / managed MCP endpoint.
+- [ ] Connect the Genie MCP endpoint to the DataRobot agent environment.
+- [ ] Test that DataRobot can invoke Genie and receive compact grounded answers.
 
 Acceptance criteria:
 
-- answer cross-table questions reliably,
+- answer cross-table operational questions reliably,
 - aggregate millions of source rows without moving them into the LLM context,
-- explain current risk using evidence independent of DataRobot predictions,
-- prevent writes/destructive SQL.
+- explain current supply conditions using evidence independent of DataRobot predictions,
+- keep the capability read-only for the MVP,
+- DataRobot can invoke the operational analyst as one distinct tool.
 
-### Phase 4 — Tool 2: policy / contract RAG
+### Phase 4 — Tool 2: DataRobot policy / contract RAG
 
 Tasks:
 
@@ -451,23 +552,31 @@ Tasks:
 - [ ] Ingest into DataRobot vector/RAG capability.
 - [ ] Require source citations/metadata in retrieval results.
 - [ ] Test retrieval from `policy_reference_id` and natural-language questions.
+- [ ] Expose policy retrieval to the Readiness Agent as a distinct tool/capability.
 
 Acceptance criteria:
 
-- RAG answers questions structured SQL cannot answer,
+- RAG answers questions structured operational analysis cannot answer,
 - retrieved policy explains why a threshold or recommended response applies,
-- source attribution is visible in the demo.
+- source attribution is visible in the demo,
+- the agent does not rely on unsupported model knowledge for policy claims.
 
-### Phase 5 — Tool 3 + agent orchestration
+### Phase 5 — Tool 3 + DataRobot agent orchestration
 
 Tasks:
 
-- [ ] Implement shortage-risk tool around DataRobot predictions.
-- [ ] Build the primary Readiness Agent.
-- [ ] Give the agent clear tool-selection instructions.
+- [ ] Implement deterministic `get_shortage_risk(customer_id, item_id)` lookup against `ml_shortage_predictions_raw`.
+- [ ] Return the relevant current probability and snapshot identifiers in a compact structured response.
+- [ ] Keep the prediction lookup separate from Genie.
+- [ ] Build the primary DataRobot Readiness Agent.
+- [ ] Register/connect all three tools with clear descriptions.
+- [ ] Give the agent explicit tool-selection instructions:
+  - Tool 1 / Genie for operational facts and root-cause analysis,
+  - Tool 2 / RAG for policy and contractual guidance,
+  - Tool 3 for authoritative DataRobot shortage probabilities.
 - [ ] Prevent the LLM from inventing predictions when Tool 3 should be used.
-- [ ] Ensure operational questions use SQL rather than RAG.
-- [ ] Ensure policy questions use retrieval rather than unsupported model knowledge.
+- [ ] Ensure operational questions use Tool 1 rather than RAG.
+- [ ] Ensure policy questions use Tool 2 rather than unsupported model knowledge.
 - [ ] Return a concise executive-friendly synthesis.
 - [ ] Expose enough tool activity that the audience can understand what the agent is doing.
 
@@ -476,7 +585,8 @@ Acceptance criteria:
 - a single complex question triggers multiple appropriate tools,
 - responses clearly distinguish observed facts, retrieved policy, and model predictions,
 - the agent can explain "why" with evidence,
-- a non-technical stakeholder can follow the UX.
+- a non-technical stakeholder can follow the UX,
+- Genie is not used as a substitute for the dedicated DataRobot prediction tool.
 
 ### Phase 6 — Demo hardening and presentation
 
@@ -487,7 +597,7 @@ Tasks:
 - [ ] Capture final row counts and presentation statistics/screenshots.
 - [ ] Pre-test all live demo prompts.
 - [ ] Add graceful failure/fallback behavior.
-- [ ] Add basic eval cases for SQL routing, RAG retrieval, and model-tool use.
+- [ ] Add basic eval cases for Genie routing, RAG retrieval, and model-tool use.
 - [ ] Build architecture slide.
 - [ ] Build problem/value slide.
 - [ ] Build production-readiness slide.
@@ -503,18 +613,17 @@ Opening prompt:
 
 Expected behavior:
 
-1. Use structured-data analysis to identify relevant current positions and historical context.
-2. Use the DataRobot shortage model to rank/quantify 30-day shortage risk.
-3. Investigate drivers for the highest-risk examples using operational data.
-4. Retrieve relevant stocking/readiness policy for selected item(s).
-5. Synthesize an executive recommendation while keeping facts, predictions, and policy grounded in their respective tools.
+1. Use Tool 3 to retrieve authoritative DataRobot 30-day shortage probabilities.
+2. Use Tool 1 / Genie to investigate current positions and operational drivers for the highest-risk examples.
+3. Use Tool 2 / RAG to retrieve relevant stocking/readiness policy for selected item(s).
+4. Synthesize an executive recommendation while keeping facts, predictions, and policy grounded in their respective tools.
 
 Possible follow-ups:
 
 - Why is the top item at risk? Is this demand-driven or supplier-driven?
 - How has that supplier performed over the last 90 days?
 - What stocking requirement applies here?
-- Show me the same risk by region rather than facility.
+- Show me the same operational exposure by region rather than facility.
 
 Future-production follow-up, discussed but not executed:
 
@@ -532,10 +641,10 @@ Future-production follow-up, discussed but not executed:
 Natural-language question
         |
         v
-Agent selects analytical tool
+Agent selects Tool 1 / Genie
         |
         v
-SQL/Spark aggregation executes where the data lives
+SQL aggregation executes where the data lives
         |
         v
 Millions/billions of source records
@@ -551,7 +660,13 @@ LLM interprets and communicates the result
 
 > **The agent reasons. DataRobot's predictive model predicts.**
 
-The LLM should not manufacture a risk probability from prose.
+The LLM and Genie should not manufacture a risk probability from prose or operational data. The dedicated prediction tool returns the authoritative DataRobot-generated result.
+
+### Tool-specialization message
+
+> **Genie explains operations. RAG explains policy. The DataRobot model quantifies future risk.**
+
+The three-tool design is intentional. A specialized tool should own each information type rather than turning a single general-purpose assistant into the source of every answer.
 
 ### Federal governance message
 
@@ -571,9 +686,9 @@ The architecture should naturally support discussion of:
 
 The MVP builds the three capabilities that make the demo credible:
 
-1. governed structured-data analysis,
-2. grounded policy retrieval,
-3. predictive shortage risk.
+1. governed structured-data analysis through Databricks Genie,
+2. grounded policy retrieval through DataRobot RAG,
+3. predictive shortage risk through a DataRobot model and deterministic lookup tool.
 
 Scenario simulation and operational action execution remain explicit production extensions rather than rushed demo features.
 
@@ -585,7 +700,7 @@ If given two additional weeks, priorities would include:
 
 - formal agent/tool evaluation suites,
 - RAG retrieval and answer-quality evaluations,
-- SQL correctness and safety evaluation cases,
+- Genie/SQL correctness and safety evaluation cases,
 - model monitoring and drift detection,
 - agent observability/tracing,
 - latency and cost monitoring,
@@ -593,7 +708,7 @@ If given two additional weeks, priorities would include:
 - retries/timeouts/idempotency where applicable,
 - user identity propagation into downstream tools,
 - Unity Catalog / source-system authorization enforcement,
-- production model deployment or governed batch-scoring pipeline,
+- hardened model batch-scoring orchestration and failure handling,
 - policy document lifecycle/version controls,
 - approval workflow for action creation,
 - additional scale/load testing.
@@ -602,16 +717,16 @@ If given two additional weeks, priorities would include:
 
 ## 15. Immediate next step
 
-**Phase 1 is complete. The project now moves to Phase 2: DataRobot shortage-risk modeling.**
+**Phases 1 and 2 are complete for the MVP. The project now moves to Phase 3: Tool 1 — Databricks Genie operational analysis.**
 
 Next actions:
 
-1. Connect/import `ml_shortage_training` into DataRobot.
-2. Verify feature types and use `shortage_within_30d` as the binary target.
-3. Train and evaluate classification candidates.
-4. Inspect class balance, PR AUC, precision/recall, calibration, and feature effects.
-5. Select a credible model and score `ml_shortage_scoring`.
-6. Preserve several strong high-risk examples for later agent/demo testing.
+1. Create one Genie Space named `DLA Medical Supply Operations Analyst`.
+2. Add the operational tables listed under Tool 1 and keep all ML/prediction tables out.
+3. Add the important join relationships and a small number of tested example questions.
+4. Validate the exact operational questions intended for the demo inside Genie.
+5. Connect the managed Genie MCP endpoint to the DataRobot agent environment.
+6. Once Tool 1 works end-to-end, move directly to Phase 4 DataRobot RAG.
 
 ---
 
