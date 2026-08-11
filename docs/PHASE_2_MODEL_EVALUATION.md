@@ -1,39 +1,37 @@
-# Phase 2 — Model Evaluation and Calibration Finding
+# Phase 2 — Model Evaluation and Synthetic Distribution-Drift Finding
 
 ## Status
 
-The first DataRobot modeling run successfully demonstrated that the synthetic feature set contains strong predictive signal for 30-day shortage risk, but it also exposed a probability-calibration problem that must be resolved before Tool 3 can safely present literal shortage probabilities.
+The first DataRobot modeling run successfully demonstrated that the synthetic feature set contains strong predictive signal for 30-day shortage risk. Historical backtests showed excellent discrimination, but the latest holdout degraded sharply.
 
-## Initial finding
+The primary Phase 2 problem is now understood to be **artificial distribution drift introduced by the synthetic data generator**, not a lack of predictive signal in the model.
+
+## Initial model finding
 
 The first set of DataRobot classification models showed:
 
 - **Excellent to exceptional discrimination** on historical backtests.
 - PR AUC values approximately **0.40–0.50** for a rare-event target.
 - ROC AUC values approximately **0.80–0.96**.
-- LogLoss around **0.13**, materially worse than a constant-probability baseline on the observed Backtest 1 prevalence.
+- LogLoss around **0.13** on the initial model runs.
+- Severe degradation on the latest holdout.
 
-The working interpretation is:
+The initial metric story can be summarized as:
 
-> **The model has excellent discrimination but poor calibration.**
+> **The initial model had excellent ranking performance but poor probability calibration. Investigation also exposed an artificial distribution shift in the synthetic data.**
 
-In practical terms, the models are very good at ranking which item/location pairs are more likely to experience a shortage, but their raw probability values should not yet be interpreted as trustworthy literal probabilities.
+The ranking results demonstrate that the generated operational features contain meaningful shortage signal. However, literal probabilities should not be exposed to the agent until the time distribution is corrected and calibration is re-evaluated on the corrected dataset.
 
-## Why this matters to the agent
+## Root cause: synthetic distribution drift
 
-The intended shortage-risk tool was designed to answer questions such as:
+The synthetic data generator contains a one-time `current_pressure` ramp tied directly to the configured as-of date. During approximately the final 90 days of the generated history, that term progressively:
 
-> "This item/location pair has an 82% probability of falling below minimum stock within the next 30 days."
+- increases synthetic demand, and
+- reduces synthetic days of supply.
 
-That statement requires **calibrated probabilities**, not merely strong ranking performance.
+Because this pressure exists only near the end of the timeline, the latest period is structurally different from the historical periods used to train the model.
 
-A model with strong PR AUC and ROC AUC can still assign probabilities that are systematically too high or too low. For the live agent, presenting those raw values as literal probabilities would overstate model certainty.
-
-## Synthetic late-period shift
-
-A separate issue was identified in the synthetic data generator. The final part of the generated timeline includes a one-time `current_pressure` ramp that increases demand and reduces days of supply near the synthetic as-of date.
-
-This produces a sharp increase in shortage prevalence late in the history:
+Observed monthly shortage prevalence illustrates the shift:
 
 - historical months: approximately 1% shortage prevalence,
 - April 2026: ~1.47%,
@@ -41,47 +39,47 @@ This produces a sharp increase in shortage prevalence late in the history:
 - June 2026: ~13.9%,
 - July 2026: ~20.6%.
 
-This explains the severe degradation observed on the latest holdout and means that a calibration learned only from the historically stable period may not remain valid in the artificially shifted final regime.
+This creates an artificial late-history regime change precisely where the time-aware holdout is located. The holdout therefore tests the model on a synthetic condition that does not have a comparable historical training distribution.
 
-## Decision rule
+## Why this matters to the agent
 
-The project should distinguish two modeling requirements:
+Tool 3 is intended to support statements such as:
 
-1. **Discrimination / ranking** — identify which supplies are most at risk. The current models already demonstrate strong performance here.
-2. **Calibration** — ensure a predicted value such as `0.82` can be communicated as an approximately 82% empirical probability. This requirement is not yet satisfied.
+> "This item/location pair has an 82% probability of falling below minimum stock within the next 30 days."
 
-## Preferred path
+That requires both:
 
-To preserve the original probability-based Tool 3 design, the preferred final model should:
+1. strong discrimination, so the model correctly separates higher- and lower-risk positions, and
+2. acceptable probability calibration, so a predicted value such as `0.82` can be interpreted as an approximately 82% empirical probability.
 
-1. Retain the current predictive feature set and classification target.
-2. Remove or redesign the one-time late-history synthetic pressure shift so comparable stress episodes exist in historical training data.
-3. Retrain the strongest DataRobot model.
-4. Apply a calibration/post-processing step to the selected model if needed.
-5. Re-evaluate LogLoss alongside PR AUC and ROC AUC.
-6. Use literal probability language in the agent only after calibration is acceptable.
+The current models satisfy the first requirement. The second should be re-evaluated only after removing the artificial distribution drift.
 
-## Fallback path without regenerating data
+## Corrective decision
 
-If the synthetic data is not regenerated, Tool 3 should be framed as a **relative shortage-risk ranking** rather than a literal probability estimator.
+The project will preserve the current business question, target, table design, feature set, and overall synthetic supply-chain logic.
 
-The agent can safely return:
+The synthetic data generator will be changed narrowly to remove the one-time as-of-date pressure ramp and any equivalent non-repeating late-history behavior. The recurring supply-pressure cycle, annual seasonality, supplier/customer differences, and deterministic random variation will remain so the data continues to contain realistic operational variation without a structural end-of-history shift.
 
-- ranked at-risk item/location pairs,
-- relative risk scores,
-- risk tiers such as Critical / High / Moderate / Low,
-- model drivers and operational evidence.
+After regeneration:
 
-In that version, avoid statements such as "82% probability" unless the score has been separately calibrated.
+1. Verify monthly shortage prevalence is reasonably stationary rather than sharply increasing near the as-of date.
+2. Verify current inventory, days-of-supply, demand, orders, and shortage examples remain operationally realistic.
+3. Retrain the DataRobot classification models using the same target and time-aware validation approach.
+4. Re-evaluate PR AUC and ROC AUC for discrimination.
+5. Re-evaluate LogLoss and probability calibration separately.
+6. Apply model calibration/post-processing only if the corrected data still produces strong discrimination with imperfect probability calibration.
+7. Expose literal probabilities to Tool 3 only after calibration is acceptable.
 
-The million-dollar question can remain largely unchanged:
+## Desired final modeling story
 
-> **Which critical medical supplies are at greatest risk of shortage over the next 30 days, where will those shortages occur, why, and what should we do about them?**
+> **"The initial model had excellent ranking performance but poor probability calibration. Investigation also exposed an artificial distribution shift in the synthetic data. I corrected the data-generating process so the current stress regime had historical analogues, retrained the model, and then evaluated calibration separately before exposing probabilities to the agent."**
 
-The phrase **"at greatest risk"** emphasizes ranking and prioritization rather than requiring the raw model score to be a perfectly calibrated probability.
+## Phase 2 success condition
 
-## Interview takeaway
+The final model does not need perfect prediction. It should provide:
 
-This modeling iteration is a useful part of the technical story:
-
-> "The initial model showed excellent discrimination on a rare-event problem, but LogLoss revealed that its raw probabilities were not sufficiently calibrated for the way the agent intended to communicate risk. I treated ranking and calibration as separate requirements rather than presenting a high AUC as proof that the probabilities were trustworthy."
+- strong rare-event discrimination,
+- stable performance across chronological backtests and holdout,
+- plausible operational feature drivers,
+- probabilities that are sufficiently calibrated to support the agent's 30-day shortage-risk statements,
+- no future or synthetic-leakage fields.
