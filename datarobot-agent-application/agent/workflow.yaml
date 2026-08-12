@@ -136,6 +136,13 @@ functions:
     middleware:
       - datarobot_dragent_normalization
 
+  # Tool 2 is a first-class NAT function. It uses the deployed DataRobot RAG blueprint
+  # directly as an OpenAI-compatible LLM endpoint. No Python wrapper is required.
+  policy_rag:
+    _type: chat_completion
+    llm_name: policy_rag_llm
+    description: "Tool 2: retrieve grounded synthetic DLA Medical policy guidance for stocking requirements, readiness thresholds, emergency sourcing, supplier escalation, cold-chain handling, and related governing-context questions. Do not use for operational data analysis or shortage probabilities."
+
 function_groups:
   mcp_tools:
     _type: datarobot_mcp_client
@@ -149,6 +156,14 @@ authentication:
 llms:
   datarobot_llm:
     _type: datarobot-llm-component
+
+  # The RAG blueprint deployment exposes an OpenAI-compatible chat-completions endpoint.
+  # Omitting a system_prompt from policy_rag preserves the prompt configured in the blueprint.
+  policy_rag_llm:
+    _type: openai
+    api_key: ${DATAROBOT_API_TOKEN}
+    base_url: "https://app.datarobot.com/api/v2/deployments/6a7cacedc2b2963a534e041b/"
+    model_name: datarobot-deployed-llm
 
 memory:
   mem0_memory:
