@@ -14,4 +14,6 @@
 
 from datarobot_genai.core.telemetry.agent import instrument
 
+from . import prediction_genie  # noqa: F401
+
 instrument()
