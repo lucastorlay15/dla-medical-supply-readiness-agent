@@ -16,15 +16,31 @@ from typing import Annotated
 from datarobot_genai.core.telemetry.agent import instrument
 from datarobot_genai.dragent.tool import nat_tool
 
+from agent.policy_rag import query_policy_rag
+
 instrument()
 
 
-def word_counter(
-    text: Annotated[str, "The full text content to count words in."],
+def policy_rag(
+    question: Annotated[
+        str,
+        "A policy, stocking-rule, readiness-rule, sourcing, supplier-escalation, "
+        "or cold-chain guidance question to answer from the synthetic medical "
+        "policy knowledge base.",
+    ],
 ) -> str:
-    """Count words in the given text."""
-    count = len(text.split())
-    return f"Tool: word counter. Word count: {count}."
+    """Retrieve grounded medical-policy guidance from the DataRobot RAG deployment."""
+    return query_policy_rag(question)
 
 
-nat_tool(word_counter, "word_counter", description="Count words in a given text.")
+nat_tool(
+    policy_rag,
+    "policy_rag",
+    description=(
+        "Tool 2: retrieve authoritative guidance from the synthetic DLA Medical "
+        "Policy RAG knowledge base. Use for stocking requirements, readiness "
+        "thresholds, emergency sourcing, supplier escalation, cold-chain guidance, "
+        "and other policy questions. Do not use for operational data analysis or "
+        "DataRobot shortage probabilities."
+    ),
+)
