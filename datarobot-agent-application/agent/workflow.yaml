@@ -136,7 +136,7 @@ function_groups:
   mcp_tools:
     _type: datarobot_mcp_client
 
- authentication:
+authentication:
   datarobot_mcp_auth:
     _type: datarobot_mcp_auth
   datarobot_auth:
