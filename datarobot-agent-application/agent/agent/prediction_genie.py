@@ -23,6 +23,7 @@ Supply Forecast Genie through its standard Conversation API.
 import asyncio
 import json
 import os
+import time
 from typing import Any
 from urllib import error, request
 
@@ -110,10 +111,12 @@ def _format_query_result(result_payload: dict[str, Any]) -> list[dict[str, Any]]
     manifest = statement.get("manifest") or {}
     schema = manifest.get("schema") or {}
     columns = schema.get("columns") or []
-    names = [
-        column.get("name", f"column_{idx}") if isinstance(column, dict) else f"column_{idx}"
-        for idx, column in enumerate(columns)
-    ]
+    names = []
+    for idx, column in enumerate(columns):
+        if isinstance(column, dict):
+            names.append(column.get("name", f"column_{idx}"))
+        else:
+            names.append(f"column_{idx}")
 
     result = statement.get("result") or {}
     rows = result.get("data_array") or []
@@ -121,7 +124,10 @@ def _format_query_result(result_payload: dict[str, Any]) -> list[dict[str, Any]]
     for row in rows[:50]:
         if isinstance(row, list):
             formatted.append(
-                {name: row[idx] if idx < len(row) else None for idx, name in enumerate(names)}
+                {
+                    name: row[idx] if idx < len(row) else None
+                    for idx, name in enumerate(names)
+                }
             )
     return formatted
 
@@ -152,7 +158,7 @@ def _run_prediction_query(question: str) -> str:
         status = str(response.get("status", "")).upper()
         if status in TERMINAL_STATUSES:
             break
-        asyncio.run(asyncio.sleep(min(1.0 + attempt * 0.15, 4.0)))
+        time.sleep(min(1.0 + attempt * 0.15, 4.0))
         response = _request_json("GET", message_path, authorization)
     else:
         raise RuntimeError("Forecast Genie timed out before reaching a terminal status.")
@@ -177,9 +183,7 @@ def _run_prediction_query(question: str) -> str:
         if isinstance(attachment.get("query"), dict):
             attachment_id = attachment.get("attachment_id")
             if attachment_id:
-                result_path = (
-                    f"{message_path}/attachments/{attachment_id}/query-result"
-                )
+                result_path = f"{message_path}/attachments/{attachment_id}/query-result"
                 result_payload = _request_json("GET", result_path, authorization)
                 query_results.extend(_format_query_result(result_payload))
 
