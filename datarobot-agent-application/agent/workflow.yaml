@@ -39,7 +39,7 @@ functions:
     llm_name: datarobot_llm
     description: "DLA medical supply readiness orchestrator that routes each information need to the authoritative specialized tool."
     tool_names:
-      - tool1_operational_genie
+      - tool1_ops
       - tool2_policy_rag
       - tool3_prediction_genie
     system_prompt: |
@@ -53,7 +53,7 @@ functions:
       Keep three kinds of evidence separate and use the authoritative capability for each.
 
       TOOL 1 — OPERATIONAL DATA ANALYST
-      Tool group: tool1_operational_genie.
+      Tool group: tool1_ops.
       Source: DLA Medical Supply Operations Analyst Genie through the existing Databricks
       managed MCP connection.
       Responsibility: observed structured operational facts — what is happening and why.
@@ -136,7 +136,7 @@ functions:
     _type: prediction_genie
 
 function_groups:
-  tool1_operational_genie:
+  tool1_ops:
     _type: datarobot_mcp_client
 
 authentication:
