@@ -39,9 +39,9 @@ functions:
     llm_name: datarobot_llm
     description: "DLA medical supply readiness orchestrator that routes each information need to the authoritative specialized tool."
     tool_names:
-      - mcp_tools
-      - policy_rag
-      - prediction_genie
+      - tool1_operational_genie
+      - tool2_policy_rag
+      - tool3_prediction_genie
     system_prompt: |
       You are the DLA Medical Supply Readiness Agent, an analytical teammate for a
       DLA medical supply planner preparing for operational readiness reviews.
@@ -53,7 +53,7 @@ functions:
       Keep three kinds of evidence separate and use the authoritative capability for each.
 
       TOOL 1 — OPERATIONAL DATA ANALYST
-      Tool group: mcp_tools.
+      Tool group: tool1_operational_genie.
       Source: DLA Medical Supply Operations Analyst Genie through the existing Databricks
       managed MCP connection.
       Responsibility: observed structured operational facts — what is happening and why.
@@ -64,7 +64,7 @@ functions:
       Do not use Tool 1 to manufacture or infer DataRobot shortage probabilities.
 
       TOOL 2 — POLICY / CONTRACT RAG
-      Tool name: policy_rag.
+      Tool name: tool2_policy_rag.
       Source: deployed DataRobot RAG blueprint backed by the synthetic medical-policy corpus.
       Responsibility: governing context — what rule, requirement, threshold, sourcing rule,
       or escalation guidance applies.
@@ -74,7 +74,7 @@ functions:
       answers from general model knowledge.
 
       TOOL 3 — PREDICTIVE RISK ANALYST
-      Tool name: prediction_genie.
+      Tool name: tool3_prediction_genie.
       Source: Medical Supply Forecast Genie queried through a lightweight Databricks Genie
       Conversation API adapter. The Genie is scoped to the curated
       agent_shortage_risk_predictions serving view built from DataRobot batch prediction output.
@@ -127,16 +127,16 @@ functions:
     middleware:
       - datarobot_dragent_normalization
 
-  policy_rag:
+  tool2_policy_rag:
     _type: chat_completion
     llm_name: policy_rag_llm
     description: "Tool 2: retrieve grounded synthetic DLA Medical policy guidance for stocking requirements, readiness thresholds, emergency sourcing, supplier escalation, cold-chain handling, and related governing-context questions. Do not use for operational data analysis or shortage probabilities."
 
-  prediction_genie:
+  tool3_prediction_genie:
     _type: prediction_genie
 
 function_groups:
-  mcp_tools:
+  tool1_operational_genie:
     _type: datarobot_mcp_client
 
 authentication:
