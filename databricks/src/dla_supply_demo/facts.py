@@ -43,11 +43,6 @@ def build_operational_facts(
         F.lit(0.0),
         F.sin(cycle_day / F.lit(180.0) * F.lit(2.0 * math.pi)),
     )
-    days_before_as_of = F.datediff(F.lit(cfg.as_of_date.isoformat()), F.col("snapshot_date"))
-    current_pressure = F.greatest(
-        F.lit(0.0),
-        F.lit(1.0) - (days_before_as_of.cast("double") / F.lit(90.0)),
-    )
     seasonal = (
         F.lit(1.0)
         + F.lit(0.08)
@@ -76,7 +71,6 @@ def build_operational_facts(
                     * (
                         F.lit(1.0)
                         + F.lit(0.34) * F.col("_latent_supply_stress") * supply_episode
-                        + F.lit(0.30) * F.col("_latent_supply_stress") * current_pressure
                     )
                     * (F.lit(1.0) + demand_noise * F.lit(0.18)),
                     2,
@@ -90,7 +84,6 @@ def build_operational_facts(
                 F.round(
                     F.col("target_days_supply").cast("double")
                     - F.lit(23.0) * F.col("_latent_supply_stress") * supply_episode
-                    - F.lit(25.0) * F.col("_latent_supply_stress") * current_pressure
                     + inventory_noise * F.lit(5.0),
                     2,
                 ),
